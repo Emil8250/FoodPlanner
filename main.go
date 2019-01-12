@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -30,13 +29,6 @@ type Dish struct {
 }
 
 var dishes []Dish
-
-func Index(w http.ResponseWriter, r *http.Request) {
-	p := "./web"
-	// set header
-	w.Header().Set("Content-type", "text/html")
-	http.ServeFile(w, r, p)
-}
 
 func Connect() *sql.DB {
 
@@ -104,15 +96,14 @@ func PostDish(w http.ResponseWriter, r *http.Request) {
 // our main function
 func main() {
 	router := mux.NewRouter()
+
+	//API HANDLERS
 	router.HandleFunc("/dish/q={query}", GetDish).Methods("GET")
 	router.HandleFunc("/dish/insert/{dish}", PostDish).Methods("POST")
 
-	dir := "./web"
-	flag.StringVar(&dir, "dir", ".", "./web")
-	flag.Parse()
+	//STATIC HTML
+	router.PathPrefix("/").Handler(http.StripPrefix("/", http.FileServer(http.Dir("./web"))))
 
-	router.HandleFunc("/", Index)
-	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(dir))))
-
+	//LISTEN AND SERVE
 	log.Fatal(http.ListenAndServe(":8000", router))
 }
