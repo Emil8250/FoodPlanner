@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 
 	"github.com/gorilla/mux"
+	"github.com/gorilla/sessions"
 	_ "github.com/lib/pq"
 	ini "gopkg.in/ini.v1"
 )
@@ -19,6 +21,7 @@ type Configuration struct {
 	user     string
 	password string
 	dbname   string
+	key      []byte
 }
 
 type Dish struct {
@@ -29,6 +32,9 @@ type Dish struct {
 }
 
 var dishes []Dish
+
+var cfg, err = ini.Load("config.ini")
+var store = sessions.NewCookieStore([]byte(cfg.Section("server").Key("key").String()))
 
 func Connect() *sql.DB {
 
@@ -58,6 +64,12 @@ func Connect() *sql.DB {
 }
 
 func GetDish(w http.ResponseWriter, r *http.Request) {
+	session, _ := store.Get(r, "authenticated")
+	if auth, ok := session.Values["authenticated"].(bool); !ok || !auth {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	fmt.Println(vars["query"])
 	//rows, err := db.Query(`SELECT * FROM dishes WHERE dishname=$1`, `Lasagne`)
@@ -80,7 +92,35 @@ func GetDish(w http.ResponseWriter, r *http.Request) {
 	defer db.Close()
 }
 
+func CheckLogin(w http.ResponseWriter, r *http.Request) {
+	session, _ := store.Get(r, "cookie-name")
+	session.Values["authenticated"] = true
+	vars := mux.Vars(r)
+	db := Connect()
+	encPasswd := fmt.Sprintf("%x", sha256.Sum256([]byte(vars["password"])))
+	rows, err := db.Query(`SELECT password FROM USERS WHERE username=$1`, vars["username"])
+	if err != nil {
+		panic(err)
+	}
+	var dbPassword string
+	for rows.Next() {
+		rows.Scan(&dbPassword)
+	}
+	fmt.Printf("%s", encPasswd)
+	if dbPassword == encPasswd {
+		session.Values["authenticated"] = true
+		fmt.Println("Success")
+	} else {
+		session.Values["authenticated"] = false
+		fmt.Println("Failed!")
+	}
+	session.Save(r, w)
+
+}
+
 func PostDish(w http.ResponseWriter, r *http.Request) {
+	session, _ := store.Get(r, "cookie-name")
+	session.Values["authenticated"] = true
 	vars := mux.Vars(r)
 	fmt.Println(vars["dish"])
 	//rows, err := db.Query(`SELECT * FROM dishes WHERE dishname=$1`, `Lasagne`)
@@ -95,10 +135,11 @@ func PostDish(w http.ResponseWriter, r *http.Request) {
 
 // our main function
 func main() {
-	router := mux.NewRouter()
 
+	router := mux.NewRouter()
 	//API HANDLERS
 	router.HandleFunc("/dish/q={query}", GetDish).Methods("GET")
+	router.HandleFunc("/login/u={username};p={password}", CheckLogin).Methods("POST")
 	router.HandleFunc("/dish/insert/{dish}", PostDish).Methods("POST")
 
 	//STATIC HTML
