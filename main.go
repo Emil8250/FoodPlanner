@@ -93,8 +93,6 @@ func GetDish(w http.ResponseWriter, r *http.Request) {
 }
 
 func CheckLogin(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "cookie-name")
-	session.Values["authenticated"] = true
 	vars := mux.Vars(r)
 	db := Connect()
 	encPasswd := fmt.Sprintf("%x", sha256.Sum256([]byte(vars["password"])))
@@ -108,19 +106,23 @@ func CheckLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Printf("%s", encPasswd)
 	if dbPassword == encPasswd {
+		session, _ := store.Get(r, "cookie-name")
 		session.Values["authenticated"] = true
+		session.Save(r, w)
 		fmt.Println("Success")
 	} else {
+		session, _ := store.Get(r, "cookie-name")
 		session.Values["authenticated"] = false
+		session.Save(r, w)
 		fmt.Println("Failed!")
 	}
-	session.Save(r, w)
 
 }
 
 func PostDish(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "cookie-name")
 	session.Values["authenticated"] = true
+	session.Save(r, w)
 	vars := mux.Vars(r)
 	fmt.Println(vars["dish"])
 	//rows, err := db.Query(`SELECT * FROM dishes WHERE dishname=$1`, `Lasagne`)
@@ -133,6 +135,38 @@ func PostDish(w http.ResponseWriter, r *http.Request) {
 	defer db.Close()
 }
 
+func secret(w http.ResponseWriter, r *http.Request) {
+	session, _ := store.Get(r, "cookie-name")
+
+	// Check if user is authenticated
+	if auth, ok := session.Values["authenticated"].(bool); !ok || !auth {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Print secret message
+	fmt.Fprintln(w, "The cake is a lie!")
+}
+
+func login(w http.ResponseWriter, r *http.Request) {
+	session, _ := store.Get(r, "cookie-name")
+
+	// Authentication goes here
+	// ...
+
+	// Set user as authenticated
+	session.Values["authenticated"] = true
+	session.Save(r, w)
+}
+
+func logout(w http.ResponseWriter, r *http.Request) {
+	session, _ := store.Get(r, "cookie-name")
+
+	// Revoke users authentication
+	session.Values["authenticated"] = false
+	session.Save(r, w)
+}
+
 // our main function
 func main() {
 
@@ -140,8 +174,11 @@ func main() {
 	//API HANDLERS
 	router.HandleFunc("/dish/q={query}", GetDish).Methods("GET")
 	router.HandleFunc("/login/u={username};p={password}", CheckLogin).Methods("POST")
-	router.HandleFunc("/dish/insert/{dish}", PostDish).Methods("POST")
+	router.HandleFunc("/dish/insert/{dish}", PostDish).Methods("GET")
 
+	router.HandleFunc("/secret", secret)
+	//router.HandleFunc("/login", login)
+	router.HandleFunc("/logout", logout)
 	//STATIC HTML
 	router.PathPrefix("/").Handler(http.StripPrefix("/", http.FileServer(http.Dir("./web"))))
 
