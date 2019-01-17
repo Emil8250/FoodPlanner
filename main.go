@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
@@ -92,33 +95,6 @@ func GetDish(w http.ResponseWriter, r *http.Request) {
 	defer db.Close()
 }
 
-func CheckLogin(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	db := Connect()
-	encPasswd := fmt.Sprintf("%x", sha256.Sum256([]byte(vars["password"])))
-	rows, err := db.Query(`SELECT password FROM USERS WHERE username=$1`, vars["username"])
-	if err != nil {
-		panic(err)
-	}
-	var dbPassword string
-	for rows.Next() {
-		rows.Scan(&dbPassword)
-	}
-	fmt.Printf("%s", encPasswd)
-	if dbPassword == encPasswd {
-		session, _ := store.Get(r, "cookie-name")
-		session.Values["authenticated"] = true
-		session.Save(r, w)
-		fmt.Println("Success")
-	} else {
-		session, _ := store.Get(r, "cookie-name")
-		session.Values["authenticated"] = false
-		session.Save(r, w)
-		fmt.Println("Failed!")
-	}
-
-}
-
 func PostDish(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "cookie-name")
 	session.Values["authenticated"] = true
@@ -149,14 +125,45 @@ func secret(w http.ResponseWriter, r *http.Request) {
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "cookie-name")
 
-	// Authentication goes here
-	// ...
+	//get form data.
+	r.ParseForm()
+	formPass := r.Form["password"]
 
-	// Set user as authenticated
-	session.Values["authenticated"] = true
-	session.Save(r, w)
+	//convert the password to []byte
+	buf := &bytes.Buffer{}
+	gob.NewEncoder(buf).Encode(formPass)
+	passBytes := buf.Bytes()
+
+	db := Connect()
+	//Encrypt the recieved password.
+	encPasswd := fmt.Sprintf("%x", sha256.Sum256([]byte(passBytes)))
+
+	//Convert the username slice to string.
+	usernameString := strings.Join(r.Form["username"], " ")
+	rows, err := db.Query(`SELECT password FROM USERS WHERE username=$1`, usernameString)
+
+	if err != nil {
+		panic(err)
+	}
+	var dbPassword string
+	for rows.Next() {
+		rows.Scan(&dbPassword)
+	}
+	fmt.Printf("%s : %s", encPasswd, dbPassword)
+
+	//The account check.
+	if dbPassword == encPasswd {
+		session, _ := store.Get(r, "cookie-name")
+		session.Values["authenticated"] = true
+		session.Save(r, w)
+		fmt.Println("Success")
+	} else {
+		session, _ := store.Get(r, "cookie-name")
+		session.Values["authenticated"] = false
+		session.Save(r, w)
+		fmt.Println("Failed!")
+	}
 }
 
 func logout(w http.ResponseWriter, r *http.Request) {
@@ -173,11 +180,11 @@ func main() {
 	router := mux.NewRouter()
 	//API HANDLERS
 	router.HandleFunc("/dish/q={query}", GetDish).Methods("GET")
-	router.HandleFunc("/login/u={username};p={password}", CheckLogin).Methods("POST")
+	router.HandleFunc("/check/{password}", CheckLogin).Methods("GET")
 	router.HandleFunc("/dish/insert/{dish}", PostDish).Methods("GET")
 
 	router.HandleFunc("/secret", secret)
-	//router.HandleFunc("/login", login)
+	router.HandleFunc("/login", login).Methods("POST")
 	router.HandleFunc("/logout", logout)
 	//STATIC HTML
 	router.PathPrefix("/").Handler(http.StripPrefix("/", http.FileServer(http.Dir("./web"))))
