@@ -7,6 +7,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	_ "github.com/lib/pq"
+	"github.com/thedevsaddam/renderer"
 	ini "gopkg.in/ini.v1"
 )
 
@@ -34,10 +36,33 @@ type Dish struct {
 	ImageUri string
 }
 
+type Todo struct {
+	Title string
+	Done  bool
+}
+
+type TodoPageData struct {
+	PageTitle string
+	Todos     []Todo
+}
+
 var dishes []Dish
 
 var cfg, err = ini.Load("config.ini")
 var store = sessions.NewCookieStore([]byte(cfg.Section("server").Key("key").String()))
+var rnd *renderer.Render
+
+func init() {
+	opts := renderer.Options{
+		ParseGlobPattern: "./web/*.html",
+	}
+
+	rnd = renderer.New(opts)
+}
+
+func home(w http.ResponseWriter, r *http.Request) {
+	rnd.HTML(w, http.StatusOK, "home", nil)
+}
 
 func Connect() *sql.DB {
 
@@ -64,6 +89,20 @@ func Connect() *sql.DB {
 	fmt.Println("Successfully connected!")
 
 	return db
+}
+
+func htmlTemplate(w http.ResponseWriter, r *http.Request) {
+	tmpl := template.Must(template.ParseFiles("web/test.html"))
+
+	data := TodoPageData{
+		PageTitle: "My TODO list",
+		Todos: []Todo{
+			{Title: "Task 1", Done: false},
+			{Title: "Task 2", Done: true},
+			{Title: "Task 3", Done: true},
+		},
+	}
+	tmpl.Execute(w, data)
 }
 
 func GetDish(w http.ResponseWriter, r *http.Request) {
@@ -178,9 +217,11 @@ func logout(w http.ResponseWriter, r *http.Request) {
 func main() {
 
 	router := mux.NewRouter()
+
+	router.HandleFunc("/home", home)
 	//API HANDLERS
 	router.HandleFunc("/dish/q={query}", GetDish).Methods("GET")
-	router.HandleFunc("/check/{password}", CheckLogin).Methods("GET")
+	router.HandleFunc("/test.html", htmlTemplate)
 	router.HandleFunc("/dish/insert/{dish}", PostDish).Methods("GET")
 
 	router.HandleFunc("/secret", secret)

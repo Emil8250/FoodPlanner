@@ -1,15 +1,10 @@
-<html>
-<head>
-</head>	
-<body>
-    
-
-    <button onclick="myFunction()">Try it</button>  
-	
-    <script>
-function myFunction() {
-  alert("Hello! I am an alert box!");
-}
-    </script>
-</body>
-</html>
+<h1>{{.PageTitle}}<h1>
+<ul>
+    {{range .Todos}}
+        {{if .Done}}
+            <li class="done" style="background-color: green;">{{.Title}}</li>
+        {{else}}
+            <li>{{.Title}}</li>
+        {{end}}
+    {{end}}
+</ul>
